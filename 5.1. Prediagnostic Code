@@ -1,0 +1,173 @@
+# 5.1 PRE-DIAGNOSTIC PATH
+# Funnel 1: Red-Flag Triage Gate (Goff Symptom Index)
+# Funnel 2: Multiplicative Relative Risk (RR) Engine
+
+lowRiskCutoff = 0.003      # below this = Low Risk
+mediumRiskCutoff = 0.015   # below this = Medium Risk, otherwise High Risk
+
+
+def askYesNo(prompt, allowUnsure=True):
+    # Keeps asking until the answer is valid; ignores capitalization and spaces
+    while True:
+        answer = input(prompt).strip().lower()
+        if answer == "yes" or answer == "y":
+            return "yes"
+        elif answer == "no" or answer == "n":
+            return "no"
+        elif answer == "unsure" and allowUnsure:
+            return "unsure"
+        else:
+            if allowUnsure:
+                print("Please answer with yes, no, or unsure.")
+            else:
+                print("Please answer with yes or no.")
+
+
+def askWholeNumber(prompt):
+    # Rejects letters, decimals, and negative numbers
+    while True:
+        answer = input(prompt).strip()
+        if answer.isdigit():
+            return int(answer)
+        else:
+            print("Please enter a whole number (0 or higher).")
+
+
+def getBaselineProbability(userAge):
+    # NCI SEER decade baseline probabilities
+    if userAge >= 30 and userAge <= 39:
+        return 0.0005
+    elif userAge >= 40 and userAge <= 49:
+        return 0.0015
+    elif userAge >= 50 and userAge <= 59:
+        return 0.0035
+    elif userAge >= 60 and userAge <= 69:
+        return 0.0045
+    else:
+        return None
+
+
+def funnelOne():
+    # Returns True if the user must be sent to urgent clinical care
+    hasSymptoms = askYesNo(
+        "Are you experiencing pelvic/abdominal pain, persistent bloating, "
+        "difficulty eating/feeling full quickly, or urinary urgency/frequency "
+        "persistently (more than 12 times per month) for less than one year? (yes/no): ",
+        allowUnsure=False
+    )
+
+    if hasSymptoms == "yes":
+        print("\nURGENT!")
+        print("Persistent physical symptoms detected. Immediate clinical assessment "
+              "and pelvic ultrasound recommended.")
+        print("Urgent Clinical Evaluation Required!")
+        return True
+    else:
+        return False
+
+
+def funnelTwo():
+    userAge = askWholeNumber("Enter your age: ")
+    baseAge = getBaselineProbability(userAge)
+
+    if baseAge is None:
+        print("That age range is not suitable for this application (ages 30-69 only).")
+        return {"status": "AGE_OUT_OF_RANGE"}
+
+    # --- RR for genetics (BRCA1 = 35.0, BRCA2 = 12.5, Lynch = 9.0, none = 1.0) ---
+    geneticsAnswer = askYesNo("Do you have either BRCA1/2 or Lynch syndrome (yes/no/unsure)? ")
+
+    if geneticsAnswer == "yes":
+        while True:
+            whichOne = input("Answer with BRCA1, BRCA2, or Lynch: ").strip().lower()
+            if "brca1" in whichOne:
+                rrGenetics = 35.0
+                break
+            elif "brca2" in whichOne:
+                rrGenetics = 12.5
+                break
+            elif "lynch" in whichOne:
+                rrGenetics = 9.0
+                break
+            else:
+                print("Please enter BRCA1, BRCA2, or Lynch.")
+    else:
+        rrGenetics = 1.0
+
+    # --- RR for family history (only asked if no confirmed mutation) ---
+    if rrGenetics > 1.0:
+        rrFamily = 1.0
+        print("Family history skipped: your confirmed genetic status already accounts for it.")
+    else:
+        familyAnswer = askYesNo(
+            "Do you have a first-degree relative (mother, sister, daughter) "
+            "with ovarian or breast cancer (yes/no/unsure)? "
+        )
+        if familyAnswer == "yes":
+            rrFamily = 2.5
+        else:
+            rrFamily = 1.0
+
+    # --- RR for oral contraceptive use (5+ years) ---
+    ocpAnswer = askYesNo("Have you used oral contraceptives (pills) for at least 5 years (yes/no/unsure)? ")
+
+    if ocpAnswer == "yes":
+        rrOcp = 0.5
+    else:
+        rrOcp = 1.0
+
+    # --- RR for parity (each full-term birth multiplies risk by 0.90) ---
+    parityCount = askWholeNumber("How many full-term births have you had (enter a number)? ")
+
+    if parityCount == 0:
+        rrParity = 1.0
+    else:
+        rrParity = 0.90 ** parityCount
+
+    # --- RR for endometriosis ---
+    endoAnswer = askYesNo("Do you have a diagnosis of endometriosis (yes/no)? ", allowUnsure=False)
+
+    if endoAnswer == "yes":
+        rrEndo = 1.5
+    else:
+        rrEndo = 1.0
+
+    # --- Cumulative RR and individual decade probability ---
+    cumulativeRR = rrGenetics * rrFamily * rrOcp * rrParity * rrEndo
+    pInd = baseAge * cumulativeRR
+
+    # --- Risk tier stratification ---
+    if pInd < lowRiskCutoff:
+        riskTier = "Low Risk"
+    elif pInd < mediumRiskCutoff:
+        riskTier = "Medium Risk"
+    else:
+        riskTier = "High Risk"
+
+    percentage = str(round(pInd * 100, 4)) + "%"
+
+    print("\nYou are at a " + riskTier.upper() + " of ovarian cancer over your current decade.")
+    print("Estimated decade probability: " + percentage)
+    print("This is an educational estimate, not a diagnosis. Talk to a clinician about any concerns.")
+
+    return {
+        "status": "CALCULATION_COMPLETE",
+        "tier": riskTier,
+        "calculatedProbability": round(pInd, 6),
+        "percentageDisplay": percentage,
+        "cumulativeRR": round(cumulativeRR, 4)
+    }
+
+
+def prediagnosticScreening():
+    needsUrgentCare = funnelOne()
+
+    if needsUrgentCare:
+        return {"status": "URGENT_TRIAGE", "tier": "Urgent Clinical Evaluation"}
+    else:
+        return funnelTwo()
+
+
+if __name__ == "__main__":
+    result = prediagnosticScreening()
+    print(result)
