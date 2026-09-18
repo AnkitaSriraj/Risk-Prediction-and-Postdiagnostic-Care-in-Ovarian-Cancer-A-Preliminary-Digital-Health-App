@@ -1,0 +1,98 @@
+# 5.2 POST-DIAGNOSTIC PATH
+# FIGO stage -> SEER 1-, 3-, and 5-year relative survival curve
+
+# Values copied from Table 1 of the paper: [1-year, 3-year, 5-year] relative survival (%)
+survivalTable = {
+    "I":   [98.1, 94.6, 93.1],
+    "II":  [92.4, 81.2, 74.8],
+    "III": [80.5, 60.1, 44.2],
+    "IV":  [71.3, 41.0, 30.8]
+}
+
+stageDescriptions = {
+    "I":   "Localized (cancer is confined to the ovaries)",
+    "II":  "Regional (cancer has spread within the pelvis)",
+    "III": "Regional spread to the peritoneum / lymph nodes",
+    "IV":  "Distant metastasis (pleural effusion, organ parenchyma)"
+}
+
+timePoints = [1, 3, 5]  # years
+
+
+def normalizeStage(rawStage):
+    # Accepts "III", "IIIC", "iv", "3", etc. and returns "I", "II", "III", "IV", or None.
+    # Order matters: check the longest matches first (IV and III before II before I).
+    stage = rawStage.strip().upper()
+
+    if stage.startswith("IV") or stage == "4":
+        return "IV"
+    elif stage.startswith("III") or stage == "3":
+        return "III"
+    elif stage.startswith("II") or stage == "2":
+        return "II"
+    elif stage.startswith("I") or stage == "1":
+        return "I"
+    else:
+        return None
+
+
+def askFigoStage():
+    while True:
+        rawStage = input("Enter your FIGO stage (I, II, III, or IV; sub-stages like IIIC are fine): ")
+        stageKey = normalizeStage(rawStage)
+        if stageKey is None:
+            print("Please enter a stage from I to IV.")
+        else:
+            return stageKey
+
+
+def drawSurvivalCurve(stageKey, years, rates):
+    # Uses matplotlib if it is installed; otherwise falls back to a text chart
+    try:
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(7, 4.5))
+        plt.plot(years, rates, marker="o", linewidth=2)
+        for i in range(len(years)):
+            plt.annotate(str(rates[i]) + "%", (years[i], rates[i]),
+                         textcoords="offset points", xytext=(0, 8), ha="center")
+        plt.title("FIGO Stage " + stageKey + ": Relative Survival (SEER)")
+        plt.xlabel("Years since diagnosis")
+        plt.ylabel("Relative survival (%)")
+        plt.xticks(years)
+        plt.ylim(0, 100)
+        plt.grid(True, alpha=0.3)
+        plt.show()
+    except ImportError:
+        print("\n(matplotlib not installed, showing a text chart instead)")
+        for i in range(len(years)):
+            bar = "#" * int(rates[i] / 2)
+            print("Year " + str(years[i]) + ": " + bar + " " + str(rates[i]) + "%")
+
+
+def postdiagnosticSurvival():
+    stageKey = askFigoStage()
+    rates = survivalTable[stageKey]
+
+    print("\nFIGO Stage " + stageKey + ": " + stageDescriptions[stageKey])
+    print("Relative survival compared with the general population:")
+    for i in range(len(timePoints)):
+        print("  " + str(timePoints[i]) + "-year: " + str(rates[i]) + "%")
+
+    drawSurvivalCurve(stageKey, timePoints, rates)
+
+    print("\nThese are population-level averages from SEER registries. They do not account "
+          "for surgical outcome, tumor subtype, or response to treatment, so they cannot "
+          "predict any one person's outcome. Please discuss your own prognosis with your care team.")
+
+    return {
+        "status": "CURVE_COMPLETE",
+        "stage": stageKey,
+        "years": timePoints,
+        "relativeSurvival": rates
+    }
+
+
+if __name__ == "__main__":
+    result = postdiagnosticSurvival()
+    print(result)
